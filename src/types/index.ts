@@ -1,6 +1,7 @@
 export type Role = 'ADMIN' | 'COMPANY_OPERATOR' | 'PORT_OPERATOR'
 export type LocationType = 'COMPANY' | 'PORT'
 export type ScanAction = 'START' | 'ARRIVE' | 'LEAVE' | 'RETURN'
+export type ScanFlowStep = 'STARTED' | 'ARRIVED_PORT' | 'LEFT_PORT' | 'COMPLETED'
 
 export interface Truck {
   id: number
@@ -107,4 +108,12 @@ export interface ScanLogsSummary {
   unique_operators: number
   by_action: Record<string, number>
   by_location: Record<string, number>
+}
+
+export interface ScanFlowDefinition {
+  id: number | null
+  steps: ScanFlowStep[]
+  is_active: boolean
+  created_at: string | null
+  updated_at: string | null
 }

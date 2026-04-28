@@ -1,4 +1,4 @@
-import type { LocationType, Role } from '../types'
+import type { LocationType, Role, ScanFlowStep } from '../types'
 
 const TRIP_STATUS_LABELS: Record<string, string> = {
   STARTED: 'Depart en cours',
@@ -17,6 +17,13 @@ const TRIP_ACTION_LABELS: Record<string, string> = {
   LEFT: 'Sortie du port',
   LEFT_PORT: 'Sortie du port',
   RETURN: 'Retour a l entreprise',
+  COMPLETED: 'Retour a l entreprise',
+}
+
+const SCAN_FLOW_STEP_LABELS: Record<ScanFlowStep, string> = {
+  STARTED: 'Depart',
+  ARRIVED_PORT: 'Arrive au port',
+  LEFT_PORT: 'Sortie du port',
   COMPLETED: 'Retour a l entreprise',
 }
 
@@ -48,4 +55,12 @@ export function toFriendlyRole(role: Role) {
 export function toFriendlyLocation(location: LocationType | null | undefined) {
   if (!location) return 'Non defini'
   return LOCATION_LABELS[location] ?? location
+}
+
+export function toFriendlyScanFlowStep(step: ScanFlowStep | string | null | undefined) {
+  if (!step) return 'Etape inconnue'
+  if (step in SCAN_FLOW_STEP_LABELS) {
+    return SCAN_FLOW_STEP_LABELS[step as ScanFlowStep]
+  }
+  return step
 }

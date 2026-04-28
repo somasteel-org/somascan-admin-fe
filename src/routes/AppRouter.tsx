@@ -4,6 +4,7 @@ import { DashboardPage } from '../pages/DashboardPage'
 import { LoginPage } from '../pages/LoginPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { ReportsPage } from '../pages/ReportsPage'
+import { ScanFlowPage } from '../pages/ScanFlowPage'
 import { ScanLogsPage } from '../pages/ScanLogsPage'
 import { TripDetailPage } from '../pages/TripDetailPage'
 import { TripsPage } from '../pages/TripsPage'
@@ -32,6 +33,7 @@ export function AppRouter() {
             <Route path="/trips/:id" element={<TripDetailPage />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/scan-logs" element={<ScanLogsPage />} />
+            <Route path="/scan-flow" element={<ScanFlowPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Route>
