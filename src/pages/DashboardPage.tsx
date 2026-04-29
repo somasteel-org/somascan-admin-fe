@@ -64,12 +64,13 @@ function toTimestamp(value?: string | null): number | null {
   return date.getTime()
 }
 
-function pickLatestDate(current: string | null, candidate?: string | null) {
+function pickLatestDate(current: string | null, candidate?: string | null): string | null {
+  const normalizedCandidate = candidate ?? null
   const currentTime = toTimestamp(current)
-  const candidateTime = toTimestamp(candidate)
+  const candidateTime = toTimestamp(normalizedCandidate)
 
   if (candidateTime == null) return current
-  if (currentTime == null || candidateTime > currentTime) return candidate
+  if (currentTime == null || candidateTime > currentTime) return normalizedCandidate
   return current
 }
 
