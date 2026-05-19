@@ -63,6 +63,23 @@ export interface DelayItem {
   date: string
 }
 
+export interface TripCalendarDay {
+  day: string
+  start_at: string
+  end_at: string
+  total: number
+  active: number
+  completed: number
+  by_status: Record<string, number>
+}
+
+export interface TripsByDaySummary {
+  total: number
+  active: number
+  completed: number
+  by_status: Record<string, number>
+}
+
 export interface AuthResponse {
   token: string
   expires_at?: string | null

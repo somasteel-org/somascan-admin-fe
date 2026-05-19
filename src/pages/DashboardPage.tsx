@@ -17,7 +17,7 @@ import {
 import { getReportsDurations, getReportsEvolution, getReportsSummary } from '../api/reports'
 import { getScanLogs } from '../api/scanLogs'
 import { getTrucks } from '../api/trucks'
-import { getTrips } from '../api/trips'
+import { getTrips, getTripsCalendar } from '../api/trips'
 import { DataTable } from '../components/common/DataTable'
 import { KpiCard } from '../components/common/KpiCard'
 import { Modal } from '../components/common/Modal'
@@ -30,12 +30,31 @@ import type {
   ReportSummary,
   ScanLogsSummary,
   Trip,
+  TripCalendarDay,
   Truck,
 } from '../types'
 import { formatDate, formatDuration, getDurationMinutes } from '../utils/format'
 import { toFriendlyLocation, toFriendlyTripAction, toFriendlyTripStatus } from '../utils/labels'
 
 const PIE_COLORS = ['#F2B841', '#0EA5E9', '#22C55E', '#F97316', '#EF4444', '#64748B', '#14B8A6']
+const CALENDAR_DAY_START = '07:00'
+const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+const DASHBOARD_CALENDAR_DAYS = 30
+const DASHBOARD_CALENDAR_PREVIEW = 7
+
+type DashboardModalKey =
+  | 'kpis'
+  | 'evolution'
+  | 'durations'
+  | 'status'
+  | 'topTrucks'
+  | 'highlights'
+  | 'recentTrips'
+  | 'longestTrips'
+  | 'calendar'
+  | 'scanActivity'
+  | 'scanActions'
+  | 'scanLocations'
 
 function useChartReady<T extends HTMLElement>() {
   const ref = useRef<T | null>(null)
@@ -55,6 +74,41 @@ function useChartReady<T extends HTMLElement>() {
   }, [])
 
   return { ref, ready }
+}
+
+function toDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function parseDateKey(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day, 12)
+}
+
+function addDays(date: Date, amount: number) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + amount)
+  return next
+}
+
+function formatCalendarLabel(value: string) {
+  return new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+  }).format(parseDateKey(value))
+}
+
+function getRecentRange(days: number) {
+  const today = new Date()
+  const from = addDays(today, -(days - 1))
+  return {
+    from: toDateKey(from),
+    to: toDateKey(today),
+  }
 }
 
 function toTimestamp(value?: string | null): number | null {
@@ -119,9 +173,11 @@ export function DashboardPage() {
   const [trips, setTrips] = useState<Trip[]>([])
   const [trucks, setTrucks] = useState<Truck[]>([])
   const [scanSummary, setScanSummary] = useState<ScanLogsSummary | null>(null)
+  const [calendarDays, setCalendarDays] = useState<TripCalendarDay[]>([])
+  const [calendarError, setCalendarError] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
-  const [isAllTrucksOpen, setIsAllTrucksOpen] = useState(false)
+  const [activeModal, setActiveModal] = useState<DashboardModalKey | null>(null)
   const evolutionChart = useChartReady<HTMLDivElement>()
   const durationsChart = useChartReady<HTMLDivElement>()
   const statusChart = useChartReady<HTMLDivElement>()
@@ -133,7 +189,10 @@ export function DashboardPage() {
 
     async function loadData() {
       setError('')
+      setCalendarError('')
       setIsLoading(true)
+
+      const calendarRange = getRecentRange(DASHBOARD_CALENDAR_DAYS)
 
       const results = await Promise.allSettled([
         getReportsSummary(),
@@ -142,11 +201,25 @@ export function DashboardPage() {
         fetchAllTrips(),
         fetchAllTrucks(),
         getScanLogs({ limit: 1, page: 1 }),
+        getTripsCalendar({
+          from: calendarRange.from,
+          to: calendarRange.to,
+          day_start: CALENDAR_DAY_START,
+          timezone: DEFAULT_TIMEZONE,
+        }),
       ])
 
       if (!active) return
 
-      const [summaryResult, evolutionResult, durationsResult, tripsResult, trucksResult, scanResult] = results
+      const [
+        summaryResult,
+        evolutionResult,
+        durationsResult,
+        tripsResult,
+        trucksResult,
+        scanResult,
+        calendarResult,
+      ] = results
 
       if (summaryResult.status === 'fulfilled') {
         setSummary(summaryResult.value)
@@ -165,6 +238,11 @@ export function DashboardPage() {
       }
       if (scanResult.status === 'fulfilled') {
         setScanSummary(scanResult.value.summary)
+      }
+      if (calendarResult.status === 'fulfilled') {
+        setCalendarDays(calendarResult.value)
+      } else {
+        setCalendarError('Calendrier indisponible')
       }
 
       if (results.some((result) => result.status === 'rejected')) {
@@ -228,6 +306,20 @@ export function DashboardPage() {
       lastTripAt,
     }
   }, [trips])
+
+  const kpiDetails = useMemo(
+    () => [
+      { label: 'Nombre total de trajets', value: summary.totalTrips },
+      { label: 'Nombre de trajets actifs', value: summary.activeTrips },
+      { label: 'Camions enregistrés', value: truckTotals.total },
+      { label: 'Camions actifs / inactifs', value: `${truckTotals.active} / ${truckTotals.inactive}` },
+      { label: 'Durée moyenne d’un trajet', value: formatDuration(tripDurationStats.averageMinutes) },
+      { label: 'Temps moyen (Entreprise → Port)', value: formatDuration(summary.avgCompanyToPort) },
+      { label: 'Temps moyen au port', value: formatDuration(summary.avgPortDuration) },
+      { label: 'Temps moyen (Port → Entreprise)', value: formatDuration(summary.avgPortToCompany) },
+    ],
+    [summary, truckTotals, tripDurationStats],
+  )
 
   const truckInsights = useMemo(() => {
     const map = new Map<string, {
@@ -316,17 +408,34 @@ export function DashboardPage() {
   const topTrucks = useMemo(() => truckInsights.slice(0, 5), [truckInsights])
   const mostActiveTruck = topTrucks[0]
 
-  const recentTrips = useMemo(() => {
-    const sorted = [...trips].sort((a, b) => {
+  const highlightDetails = useMemo(
+    () => [
+      {
+        label: 'Camion le plus actif',
+        value: mostActiveTruck ? `${mostActiveTruck.registration} (${mostActiveTruck.totalTrips} trajets)` : '—',
+      },
+      { label: 'Trajets terminés', value: tripDurationStats.completedCount },
+      { label: 'Temps cumulé (trajets terminés)', value: formatDuration(tripDurationStats.totalMinutes) },
+      { label: 'Durée moyenne d’un trajet', value: formatDuration(tripDurationStats.averageMinutes) },
+      {
+        label: 'Dernier trajet enregistré',
+        value: tripDurationStats.lastTripAt ? formatDate(tripDurationStats.lastTripAt) : '-',
+      },
+    ],
+    [mostActiveTruck, tripDurationStats],
+  )
+
+  const sortedTrips = useMemo(() => {
+    return [...trips].sort((a, b) => {
       const aTime = Math.max(toTimestamp(a.started_at) ?? 0, toTimestamp(a.completed_at) ?? 0)
       const bTime = Math.max(toTimestamp(b.started_at) ?? 0, toTimestamp(b.completed_at) ?? 0)
       return bTime - aTime
     })
-
-    return sorted.slice(0, 6)
   }, [trips])
 
-  const longestTrips = useMemo(() => {
+  const recentTrips = useMemo(() => sortedTrips.slice(0, 6), [sortedTrips])
+
+  const tripsByDuration = useMemo(() => {
     const withDuration = trips
       .map((trip) => ({
         trip,
@@ -334,10 +443,33 @@ export function DashboardPage() {
       }))
       .filter((item): item is { trip: Trip; duration: number } => typeof item.duration === 'number')
 
-    return withDuration
-      .sort((a, b) => b.duration - a.duration)
-      .slice(0, 6)
+    return withDuration.sort((a, b) => b.duration - a.duration)
   }, [trips])
+
+  const longestTrips = useMemo(() => tripsByDuration.slice(0, 6), [tripsByDuration])
+
+  const recentCalendarPreview = useMemo(() => {
+    const map = new Map(calendarDays.map((d) => [d.day, d]))
+    const today = new Date()
+    const days: TripCalendarDay[] = []
+
+    for (let i = DASHBOARD_CALENDAR_PREVIEW - 1; i >= 0; i -= 1) {
+      const d = addDays(today, -i)
+      const key = toDateKey(d)
+      const entry = map.get(key) ?? {
+        day: key,
+        start_at: '',
+        end_at: '',
+        total: 0,
+        active: 0,
+        completed: 0,
+        by_status: {},
+      }
+      days.push(entry)
+    }
+
+    return days
+  }, [calendarDays])
 
   const scanActionData = useMemo(() => {
     if (!scanSummary) return []
@@ -363,6 +495,292 @@ export function DashboardPage() {
       .sort((a, b) => b.value - a.value)
   }, [scanSummary])
 
+  const modalTitle = useMemo(() => {
+    switch (activeModal) {
+      case 'kpis':
+        return 'Indicateurs clés'
+      case 'evolution':
+        return 'Évolution des trajets'
+      case 'durations':
+        return 'Répartition des durées'
+      case 'status':
+        return 'Répartition des statuts'
+      case 'topTrucks':
+        return 'Tous les camions'
+      case 'highlights':
+        return 'Faits marquants'
+      case 'recentTrips':
+        return 'Tous les derniers trajets'
+      case 'longestTrips':
+        return 'Trajets les plus longs'
+      case 'scanActivity':
+        return 'Activité des scans'
+      case 'scanActions':
+        return 'Répartition des actions'
+      case 'scanLocations':
+        return 'Répartition des lieux'
+      default:
+        return ''
+    }
+  }, [activeModal])
+
+  function renderModalContent() {
+    switch (activeModal) {
+      case 'kpis':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={kpiDetails}
+              emptyText="Aucun indicateur"
+              columns={[
+                { key: 'label', header: 'Indicateur', render: (item) => item.label },
+                { key: 'value', header: 'Valeur', render: (item) => item.value },
+              ]}
+            />
+          </div>
+        )
+      case 'evolution':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={evolution}
+              emptyText="Aucune évolution disponible"
+              columns={[
+                { key: 'date', header: 'Date', render: (item) => item.date },
+                { key: 'count', header: 'Trajets', render: (item) => item.count },
+              ]}
+            />
+          </div>
+        )
+      case 'durations':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={durations}
+              emptyText="Aucune distribution disponible"
+              columns={[
+                { key: 'range', header: 'Plage', render: (item) => item.range },
+                { key: 'value', header: 'Trajets', render: (item) => item.value },
+              ]}
+            />
+          </div>
+        )
+      case 'status':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={tripStatusData}
+              emptyText="Aucun statut disponible"
+              columns={[
+                { key: 'status', header: 'Statut', render: (item) => item.name },
+                { key: 'value', header: 'Trajets', render: (item) => item.value },
+              ]}
+            />
+          </div>
+        )
+      case 'topTrucks':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={truckInsights}
+              emptyText="Aucun camion disponible"
+              columns={[
+                {
+                  key: 'camion',
+                  header: 'Camion',
+                  render: (item) => item.registration,
+                },
+                {
+                  key: 'chauffeur',
+                  header: 'Chauffeur',
+                  render: (item) => item.driverName ?? '-',
+                },
+                {
+                  key: 'total',
+                  header: 'Trajets',
+                  render: (item) => item.totalTrips,
+                },
+                {
+                  key: 'actifs',
+                  header: 'Actifs',
+                  render: (item) => item.activeTrips,
+                },
+                {
+                  key: 'termines',
+                  header: 'Terminés',
+                  render: (item) => item.completedTrips,
+                },
+                {
+                  key: 'temps',
+                  header: 'Temps total',
+                  render: (item) => formatDuration(item.totalMinutes),
+                },
+                {
+                  key: 'moyenne',
+                  header: 'Moyenne',
+                  render: (item) => formatDuration(item.averageMinutes),
+                },
+                {
+                  key: 'dernier',
+                  header: 'Dernier trajet',
+                  render: (item) => (item.lastTripAt ? formatDate(item.lastTripAt) : '-'),
+                },
+              ]}
+            />
+          </div>
+        )
+      case 'highlights':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={highlightDetails}
+              emptyText="Aucun fait marquant"
+              columns={[
+                { key: 'label', header: 'Indicateur', render: (item) => item.label },
+                { key: 'value', header: 'Valeur', render: (item) => item.value },
+              ]}
+            />
+          </div>
+        )
+      case 'recentTrips':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={sortedTrips}
+              emptyText="Aucun trajet disponible"
+              columns={[
+                { key: 'id', header: 'ID', render: (trip) => `#${trip.id}` },
+                {
+                  key: 'camion',
+                  header: 'Camion',
+                  render: (trip) => trip.truck_registration_number ?? '-',
+                },
+                {
+                  key: 'statut',
+                  header: 'Statut',
+                  render: (trip) => toFriendlyTripStatus(trip.status),
+                },
+                {
+                  key: 'depart',
+                  header: 'Départ',
+                  render: (trip) => formatDate(trip.started_at),
+                },
+                {
+                  key: 'retour',
+                  header: 'Retour',
+                  render: (trip) => formatDate(trip.completed_at),
+                },
+              ]}
+            />
+          </div>
+        )
+      case 'longestTrips':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={tripsByDuration}
+              emptyText="Aucun trajet terminé"
+              columns={[
+                {
+                  key: 'camion',
+                  header: 'Camion',
+                  render: (item) => item.trip.truck_registration_number ?? '-',
+                },
+                {
+                  key: 'duree',
+                  header: 'Durée',
+                  render: (item) => formatDuration(item.duration),
+                },
+                {
+                  key: 'depart',
+                  header: 'Départ',
+                  render: (item) => formatDate(item.trip.started_at),
+                },
+                {
+                  key: 'retour',
+                  header: 'Retour',
+                  render: (item) => formatDate(item.trip.completed_at),
+                },
+              ]}
+            />
+          </div>
+        )
+      case 'scanActivity':
+        return (
+          <div className="max-h-[60vh] overflow-auto space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total scans</p>
+                <p className="mt-1 text-sm text-zinc-900">{scanSummary?.total_logs ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Opérateurs uniques</p>
+                <p className="mt-1 text-sm text-zinc-900">{scanSummary?.unique_operators ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Scans entreprise / port</p>
+                <p className="mt-1 text-sm text-zinc-900">
+                  {(scanSummary?.by_location?.COMPANY ?? 0)} / {(scanSummary?.by_location?.PORT ?? 0)}
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-zinc-900">Par action</h3>
+                <DataTable
+                  data={scanActionData}
+                  emptyText="Aucune action"
+                  columns={[
+                    { key: 'action', header: 'Action', render: (item) => item.name },
+                    { key: 'value', header: 'Total', render: (item) => item.value },
+                  ]}
+                />
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-zinc-900">Par localisation</h3>
+                <DataTable
+                  data={scanLocationData}
+                  emptyText="Aucune localisation"
+                  columns={[
+                    { key: 'location', header: 'Localisation', render: (item) => item.name },
+                    { key: 'value', header: 'Total', render: (item) => item.value },
+                  ]}
+                />
+              </div>
+            </div>
+          </div>
+        )
+      case 'scanActions':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={scanActionData}
+              emptyText="Aucune action"
+              columns={[
+                { key: 'action', header: 'Action', render: (item) => item.name },
+                { key: 'value', header: 'Total', render: (item) => item.value },
+              ]}
+            />
+          </div>
+        )
+      case 'scanLocations':
+        return (
+          <div className="max-h-[60vh] overflow-auto">
+            <DataTable
+              data={scanLocationData}
+              emptyText="Aucune localisation"
+              columns={[
+                { key: 'location', header: 'Localisation', render: (item) => item.name },
+                { key: 'value', header: 'Total', render: (item) => item.value },
+              ]}
+            />
+          </div>
+        )
+      default:
+        return null
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -373,20 +791,53 @@ export function DashboardPage() {
       {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
       {isLoading ? <p className="mb-4 text-sm text-zinc-500">Chargement des statistiques...</p> : null}
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Nombre total de trajets" value={summary.totalTrips} />
-        <KpiCard label="Nombre de trajets actifs" value={summary.activeTrips} />
-        <KpiCard label="Camions enregistrés" value={truckTotals.total} />
-        <KpiCard label="Camions actifs / inactifs" value={`${truckTotals.active} / ${truckTotals.inactive}`} />
-        <KpiCard label="Durée moyenne d’un trajet" value={formatDuration(tripDurationStats.averageMinutes)} />
-        <KpiCard label="Temps moyen (Entreprise → Port)" value={formatDuration(summary.avgCompanyToPort)} />
-        <KpiCard label="Temps moyen au port" value={formatDuration(summary.avgPortDuration)} />
-        <KpiCard label="Temps moyen (Port → Entreprise)" value={formatDuration(summary.avgPortToCompany)} />
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-zinc-900">Indicateurs clés</h2>
+          <Button variant="ghost" onClick={() => setActiveModal('kpis')}>
+            Voir plus
+          </Button>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard label="Nombre total de trajets" value={summary.totalTrips} />
+          <KpiCard label="Nombre de trajets actifs" value={summary.activeTrips} />
+          <KpiCard label="Camions enregistrés" value={truckTotals.total} />
+          <KpiCard label="Camions actifs / inactifs" value={`${truckTotals.active} / ${truckTotals.inactive}`} />
+          <KpiCard label="Durée moyenne d’un trajet" value={formatDuration(tripDurationStats.averageMinutes)} />
+          <KpiCard label="Temps moyen (Entreprise → Port)" value={formatDuration(summary.avgCompanyToPort)} />
+          <KpiCard label="Temps moyen au port" value={formatDuration(summary.avgPortDuration)} />
+          <KpiCard label="Temps moyen (Port → Entreprise)" value={formatDuration(summary.avgPortToCompany)} />
+        </div>
+      </section>
+
+      <section className="mt-4">
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Aperçu calendrier ({DASHBOARD_CALENDAR_PREVIEW} jours)</h2>
+          </div>
+
+          {calendarError ? <p className="mb-2 text-sm text-red-600">{calendarError}</p> : null}
+
+          <div className="mt-2 flex gap-2 overflow-x-auto">
+            {recentCalendarPreview.map((day) => (
+              <div key={day.day} className="min-w-[110px] rounded-lg border border-zinc-200 bg-white p-2 text-center">
+                <div className="text-xs text-zinc-500">{formatCalendarLabel(day.day)}</div>
+                <div className="mt-1 text-lg font-semibold text-zinc-900">{day.total}</div>
+                <div className="text-[11px] text-zinc-500">trajets</div>
+              </div>
+            ))}
+          </div>
+        </Card>
       </section>
 
       <section className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="min-w-0">
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">Évolution des trajets</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Évolution des trajets</h2>
+            <Button variant="ghost" onClick={() => setActiveModal('evolution')}>
+              Voir plus
+            </Button>
+          </div>
           <div ref={evolutionChart.ref} className="h-[260px] min-w-0">
             {evolutionChart.ready ? (
               <ResponsiveContainer width="100%" height={260} minWidth={0} minHeight={260}>
@@ -403,7 +854,12 @@ export function DashboardPage() {
         </Card>
 
         <Card className="min-w-0">
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">Répartition des durées</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Répartition des durées</h2>
+            <Button variant="ghost" onClick={() => setActiveModal('durations')}>
+              Voir plus
+            </Button>
+          </div>
           <div ref={durationsChart.ref} className="h-[260px] min-w-0">
             {durationsChart.ready ? (
               <ResponsiveContainer width="100%" height={260} minWidth={0} minHeight={260}>
@@ -420,7 +876,12 @@ export function DashboardPage() {
         </Card>
 
         <Card className="min-w-0">
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">Répartition des statuts</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Répartition des statuts</h2>
+            <Button variant="ghost" onClick={() => setActiveModal('status')}>
+              Voir plus
+            </Button>
+          </div>
           <div ref={statusChart.ref} className="h-[260px] min-w-0">
             {statusChart.ready ? (
               <ResponsiveContainer width="100%" height={260} minWidth={0} minHeight={260}>
@@ -443,8 +904,8 @@ export function DashboardPage() {
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-zinc-900">Camions les plus actifs</h2>
-            <Button variant="ghost" onClick={() => setIsAllTrucksOpen(true)}>
-              Voir tout
+            <Button variant="ghost" onClick={() => setActiveModal('topTrucks')}>
+              Voir plus
             </Button>
           </div>
           <DataTable
@@ -486,7 +947,12 @@ export function DashboardPage() {
         </Card>
 
         <Card>
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">Faits marquants</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Faits marquants</h2>
+            <Button variant="ghost" onClick={() => setActiveModal('highlights')}>
+              Voir plus
+            </Button>
+          </div>
           <div className="space-y-3 text-sm text-zinc-600">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Camion le plus actif</p>
@@ -516,7 +982,12 @@ export function DashboardPage() {
 
       <section className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card>
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">Derniers trajets</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Derniers trajets</h2>
+            <Button variant="ghost" onClick={() => setActiveModal('recentTrips')}>
+              Voir plus
+            </Button>
+          </div>
           <DataTable
             data={recentTrips}
             emptyText="Aucun trajet disponible"
@@ -547,7 +1018,12 @@ export function DashboardPage() {
         </Card>
 
         <Card>
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">Trajets les plus longs</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Trajets les plus longs</h2>
+            <Button variant="ghost" onClick={() => setActiveModal('longestTrips')}>
+              Voir plus
+            </Button>
+          </div>
           <DataTable
             data={longestTrips}
             emptyText="Aucun trajet terminé"
@@ -579,7 +1055,12 @@ export function DashboardPage() {
 
       <section className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card>
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">Activité des scans</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Activité des scans</h2>
+            <Button variant="ghost" onClick={() => setActiveModal('scanActivity')}>
+              Voir plus
+            </Button>
+          </div>
           <div className="space-y-3 text-sm text-zinc-600">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total scans</p>
@@ -599,7 +1080,12 @@ export function DashboardPage() {
         </Card>
 
         <Card className="min-w-0">
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">Répartition des actions</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Répartition des actions</h2>
+            <Button variant="ghost" onClick={() => setActiveModal('scanActions')}>
+              Voir plus
+            </Button>
+          </div>
           <div ref={scanActionChart.ref} className="h-[240px] min-w-0">
             {scanActionChart.ready ? (
               <ResponsiveContainer width="100%" height={240} minWidth={0} minHeight={240}>
@@ -618,7 +1104,12 @@ export function DashboardPage() {
         </Card>
 
         <Card className="min-w-0">
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">Répartition des lieux</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Répartition des lieux</h2>
+            <Button variant="ghost" onClick={() => setActiveModal('scanLocations')}>
+              Voir plus
+            </Button>
+          </div>
           <div ref={scanLocationChart.ref} className="h-[240px] min-w-0">
             {scanLocationChart.ready ? (
               <ResponsiveContainer width="100%" height={240} minWidth={0} minHeight={240}>
@@ -637,55 +1128,8 @@ export function DashboardPage() {
         </Card>
       </section>
 
-      <Modal open={isAllTrucksOpen} title="Tous les camions" onClose={() => setIsAllTrucksOpen(false)}>
-        <div className="max-h-[60vh] overflow-auto">
-          <DataTable
-            data={truckInsights}
-            emptyText="Aucun camion disponible"
-            columns={[
-              {
-                key: 'camion',
-                header: 'Camion',
-                render: (item) => item.registration,
-              },
-              {
-                key: 'chauffeur',
-                header: 'Chauffeur',
-                render: (item) => item.driverName ?? '-',
-              },
-              {
-                key: 'total',
-                header: 'Trajets',
-                render: (item) => item.totalTrips,
-              },
-              {
-                key: 'actifs',
-                header: 'Actifs',
-                render: (item) => item.activeTrips,
-              },
-              {
-                key: 'termines',
-                header: 'Terminés',
-                render: (item) => item.completedTrips,
-              },
-              {
-                key: 'temps',
-                header: 'Temps total',
-                render: (item) => formatDuration(item.totalMinutes),
-              },
-              {
-                key: 'moyenne',
-                header: 'Moyenne',
-                render: (item) => formatDuration(item.averageMinutes),
-              },
-              {
-                key: 'dernier',
-                header: 'Dernier trajet',
-                render: (item) => (item.lastTripAt ? formatDate(item.lastTripAt) : '-'),
-              },
-            ]}
-          />
-        </div>
+      <Modal open={activeModal !== null} title={modalTitle} onClose={() => setActiveModal(null)}>
+        {renderModalContent()}
       </Modal>
     </div>
   )

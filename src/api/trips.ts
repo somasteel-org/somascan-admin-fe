@@ -1,10 +1,11 @@
 import { apiClient } from './client'
 import {
+  asArray,
   asRecord,
   parsePaginated,
   type PaginationResult,
 } from './http'
-import type { Trip, TripLog } from '../types'
+import type { Trip, TripCalendarDay, TripLog, TripsByDaySummary } from '../types'
 
 export interface ListTripsParams {
   limit?: number
@@ -22,10 +23,50 @@ export interface ListSimpleTripsParams {
   page?: number
 }
 
+export interface TripCalendarParams {
+  from: string
+  to: string
+  day_start?: string
+  timezone?: string
+  status?: string
+  truck_id?: number
+  registration_number?: string
+  driver_name?: string
+}
+
+export interface TripsByDayParams {
+  day: string
+  day_start?: string
+  timezone?: string
+  page?: number
+  limit?: number
+  status?: string
+  truck_id?: number
+  registration_number?: string
+  driver_name?: string
+}
+
+export interface TripsByDayResponse extends PaginationResult<Trip> {
+  summary: TripsByDaySummary
+}
+
 function asNullableString(value: unknown): string | null {
   if (value == null) return null
   const stringValue = String(value)
   return stringValue.trim() ? stringValue : null
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function normalizeStatusCounts(raw: unknown): Record<string, number> {
+  const record = asRecord(raw)
+  return Object.entries(record).reduce<Record<string, number>>((acc, [key, value]) => {
+    acc[key] = toNumber(value)
+    return acc
+  }, {})
 }
 
 function normalizeTrip(raw: unknown): Trip {
@@ -67,6 +108,31 @@ function normalizeTripLog(raw: unknown): TripLog {
 function extractSingle(data: unknown): unknown {
   const payload = asRecord(data)
   return payload.data ?? payload.trip ?? data
+}
+
+function normalizeCalendarDay(raw: unknown): TripCalendarDay {
+  const row = asRecord(raw)
+
+  return {
+    day: String(row.day ?? row.date ?? row.label ?? ''),
+    start_at: String(row.start_at ?? row.startAt ?? ''),
+    end_at: String(row.end_at ?? row.endAt ?? ''),
+    total: toNumber(row.total ?? row.count ?? row.trips),
+    active: toNumber(row.active ?? row.active_trips),
+    completed: toNumber(row.completed ?? row.completed_trips),
+    by_status: normalizeStatusCounts(row.by_status ?? row.byStatus),
+  }
+}
+
+function normalizeDaySummary(raw: unknown): TripsByDaySummary {
+  const row = asRecord(raw)
+
+  return {
+    total: toNumber(row.total ?? row.count ?? row.trips),
+    active: toNumber(row.active ?? row.active_trips),
+    completed: toNumber(row.completed ?? row.completed_trips),
+    by_status: normalizeStatusCounts(row.by_status ?? row.byStatus ?? row.status_counts),
+  }
 }
 
 export async function getTrips(params: ListTripsParams = {}): Promise<PaginationResult<Trip>> {
@@ -111,4 +177,24 @@ export async function getTripLogs(id: number) {
           ? data
           : []
   return rows.map(normalizeTripLog)
+}
+
+export async function getTripsCalendar(params: TripCalendarParams): Promise<TripCalendarDay[]> {
+  const { data } = await apiClient.get<unknown>('/trips/calendar', { params })
+  const payload = asRecord(data)
+  const rows = asArray(payload.data ?? payload.days ?? payload.items ?? data)
+  return rows.map(normalizeCalendarDay)
+}
+
+export async function getTripsByDay(params: TripsByDayParams): Promise<TripsByDayResponse> {
+  const { data } = await apiClient.get<unknown>('/trips/by-day', { params })
+  const parsed = parsePaginated(data, normalizeTrip)
+  const payload = asRecord(data)
+  const nested = asRecord(payload.data)
+  const summarySource = payload.summary ?? nested.summary ?? asRecord(payload.meta).summary
+
+  return {
+    ...parsed,
+    summary: normalizeDaySummary(summarySource),
+  }
 }
