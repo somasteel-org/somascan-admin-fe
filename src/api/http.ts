@@ -24,10 +24,51 @@ export function asArray(value: unknown): unknown[] {
 }
 
 function extractMeta(payload: Record<string, unknown>) {
-  const currentPage = toNumber(payload.current_page, 1)
-  const perPage = toNumber(payload.per_page, 20)
-  const total = toNumber(payload.total, 0)
-  const lastPage = toNumber(payload.last_page, Math.max(1, currentPage))
+  const paginationCandidates = [
+    payload.pagination,
+    payload.meta,
+    asRecord(payload.data).pagination,
+    asRecord(payload.data).meta,
+    asRecord(asRecord(payload.data).data).pagination,
+    asRecord(asRecord(payload.data).data).meta,
+  ]
+  const pagination = paginationCandidates.find((candidate) => candidate && typeof candidate === 'object')
+    ? asRecord(paginationCandidates.find((candidate) => candidate && typeof candidate === 'object'))
+    : {}
+  const currentPage = toNumber(
+    payload.current_page ??
+      payload.currentPage ??
+      payload.page ??
+      asRecord(payload.data).current_page ??
+      asRecord(payload.data).currentPage ??
+      asRecord(payload.data).page ??
+      pagination.current_page ??
+      pagination.currentPage ??
+      pagination.page,
+    1,
+  )
+  const perPage = toNumber(
+    payload.per_page ??
+      payload.perPage ??
+      payload.limit ??
+      asRecord(payload.data).per_page ??
+      asRecord(payload.data).perPage ??
+      asRecord(payload.data).limit ??
+      pagination.per_page ??
+      pagination.perPage ??
+      pagination.limit,
+    20,
+  )
+  const total = toNumber(payload.total ?? pagination.total ?? pagination.total_items ?? pagination.totalItems, 0)
+  const lastPage = toNumber(
+    payload.last_page ??
+      payload.lastPage ??
+      pagination.last_page ??
+      pagination.lastPage ??
+      pagination.total_pages ??
+      pagination.totalPages,
+    Math.max(1, currentPage),
+  )
 
   return { currentPage, perPage, total, lastPage }
 }
@@ -48,10 +89,11 @@ export function parsePaginated<T>(
 
   const payload = asRecord(data)
   const nestedPayload = asRecord(payload.data)
+  const deepNestedPayload = asRecord(nestedPayload.data)
   const source = Array.isArray(payload.data) ? payload : nestedPayload
+  const meta = extractMeta(payload)
 
   if (Array.isArray(source.data)) {
-    const meta = extractMeta(source)
     return {
       items: source.data.map(normalize),
       page: meta.currentPage,
@@ -68,16 +110,22 @@ export function parsePaginated<T>(
         ? asArray(source.trucks)
         : asArray(source.users).length > 0
           ? asArray(source.users)
-          : asArray(source.trips)
+          : asArray(source.trips).length > 0
+            ? asArray(source.trips)
+            : asArray(deepNestedPayload.items).length > 0
+              ? asArray(deepNestedPayload.items)
+              : asArray(deepNestedPayload.trips).length > 0
+                ? asArray(deepNestedPayload.trips)
+                : asArray(deepNestedPayload.data)
 
   const items = listCandidate.map(normalize)
 
   return {
     items,
-    page: toNumber(source.page ?? source.current_page, 1),
-    perPage: toNumber(source.per_page, items.length || 20),
-    total: toNumber(source.total, items.length),
-    lastPage: toNumber(source.last_page, 1),
+    page: meta.currentPage,
+    perPage: meta.perPage,
+    total: meta.total || items.length,
+    lastPage: meta.lastPage,
   }
 }
 

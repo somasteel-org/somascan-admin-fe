@@ -38,6 +38,7 @@ export interface TripsByDayParams {
   day: string
   day_start?: string
   timezone?: string
+  all?: boolean
   page?: number
   limit?: number
   status?: string
@@ -48,6 +49,11 @@ export interface TripsByDayParams {
 
 export interface TripsByDayResponse extends PaginationResult<Trip> {
   summary: TripsByDaySummary
+  window?: {
+    start_at: string
+    end_at: string
+  }
+  total_items?: number
 }
 
 function asNullableString(value: unknown): string | null {
@@ -83,6 +89,7 @@ function normalizeTrip(raw: unknown): Trip {
       row.truck_driver_name ?? row.driver_name ?? truck.driver_name,
     ) ?? undefined,
     status: String(row.status ?? 'UNKNOWN'),
+    created_at: asNullableString(row.created_at ?? row.createdAt) ?? undefined,
     started_at: String(row.started_at ?? row.created_at ?? ''),
     arrived_port_at: asNullableString(row.arrived_port_at),
     left_port_at: asNullableString(row.left_port_at),
@@ -112,15 +119,21 @@ function extractSingle(data: unknown): unknown {
 
 function normalizeCalendarDay(raw: unknown): TripCalendarDay {
   const row = asRecord(raw)
+  const rawDay = String(row.day ?? row.date ?? row.label ?? '')
+  const match = rawDay.match(/\d{4}-\d{2}-\d{2}/)
+  const day = match ? match[0] : rawDay
+  const tripSource: unknown = row.trips ?? asRecord(row.data).trips ?? asRecord(row.items).trips
+  const nestedTrips = asArray(tripSource)
 
   return {
-    day: String(row.day ?? row.date ?? row.label ?? ''),
+    day,
     start_at: String(row.start_at ?? row.startAt ?? ''),
     end_at: String(row.end_at ?? row.endAt ?? ''),
     total: toNumber(row.total ?? row.count ?? row.trips),
     active: toNumber(row.active ?? row.active_trips),
     completed: toNumber(row.completed ?? row.completed_trips),
     by_status: normalizeStatusCounts(row.by_status ?? row.byStatus),
+    trips: nestedTrips.map(normalizeTrip),
   }
 }
 
@@ -182,7 +195,27 @@ export async function getTripLogs(id: number) {
 export async function getTripsCalendar(params: TripCalendarParams): Promise<TripCalendarDay[]> {
   const { data } = await apiClient.get<unknown>('/trips/calendar', { params })
   const payload = asRecord(data)
-  const rows = asArray(payload.data ?? payload.days ?? payload.items ?? data)
+  const nested = asRecord(payload.data)
+  const deepNested = asRecord(nested.data)
+  const rows = Array.isArray(payload.data)
+    ? payload.data
+    : Array.isArray(nested.data)
+      ? nested.data
+      : Array.isArray(deepNested.data)
+        ? deepNested.data
+    : Array.isArray(payload.days)
+      ? payload.days
+      : Array.isArray(payload.items)
+        ? payload.items
+        : Array.isArray(payload.trips)
+          ? payload.trips
+          : Array.isArray(nested.days)
+            ? nested.days
+            : Array.isArray(nested.items)
+              ? nested.items
+              : Array.isArray(nested.trips)
+                ? nested.trips
+                : asArray(data)
   return rows.map(normalizeCalendarDay)
 }
 
@@ -192,9 +225,21 @@ export async function getTripsByDay(params: TripsByDayParams): Promise<TripsByDa
   const payload = asRecord(data)
   const nested = asRecord(payload.data)
   const summarySource = payload.summary ?? nested.summary ?? asRecord(payload.meta).summary
+  const windowSource = asRecord(payload.window ?? nested.window)
+  const totalItems = toNumber(
+    payload.total_items ?? payload.totalItems ?? nested.total_items ?? nested.totalItems,
+    parsed.total,
+  )
 
   return {
     ...parsed,
     summary: normalizeDaySummary(summarySource),
+    window: windowSource.start_at && windowSource.end_at
+      ? {
+          start_at: String(windowSource.start_at),
+          end_at: String(windowSource.end_at),
+        }
+      : undefined,
+    total_items: totalItems,
   }
 }

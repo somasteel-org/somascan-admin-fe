@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getApiErrorMessage } from '../api/http'
 import { getTrips, getTripsByDay, getTripsCalendar } from '../api/trips'
@@ -15,8 +15,6 @@ import { cn } from '../utils/cn'
 
 const PAGE_SIZE = 20
 const SEARCH_FETCH_LIMIT = 100
-const CALENDAR_DAY_START = '07:00'
-const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 const WEEK_START = 1
 const DAY_LABELS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
 const EMPTY_DAY_SUMMARY: TripsByDaySummary = { total: 0, active: 0, completed: 0, by_status: {} }
@@ -30,6 +28,14 @@ function extractTripDateKey(dateTime: string | null | undefined) {
   const value = String(dateTime)
   const match = value.match(/\d{4}-\d{2}-\d{2}/)
   return match ? match[0] : null
+}
+
+function getTripDateKey(trip: Trip) {
+  return (
+    extractTripDateKey(trip.created_at) ??
+    extractTripDateKey(trip.started_at) ??
+    extractTripDateKey(trip.completed_at)
+  )
 }
 
 function isInDateRange(dateKey: string | null, from: string, to: string) {
@@ -59,6 +65,28 @@ function addDays(date: Date, amount: number) {
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+function calendarHasTrips(days: TripCalendarDay[]) {
+  return days.some((day) => (day.total ?? 0) > 0 || (day.trips?.length ?? 0) > 0)
+}
+
+function latestCalendarDay(days: TripCalendarDay[]) {
+  return [...days].reverse().find((day) => (day.total ?? 0) > 0 || (day.trips?.length ?? 0) > 0)
+}
+
+function buildCalendarRange(cursor: Date) {
+  const monthStart = startOfMonth(cursor)
+  const monthEnd = endOfMonth(cursor)
+  const rangeStart = startOfWeek(monthStart, WEEK_START)
+  const rangeEnd = endOfWeek(monthEnd, WEEK_START)
+
+  return {
+    rangeStart,
+    rangeEnd,
+    from: toDateKey(rangeStart),
+    to: toDateKey(rangeEnd),
+  }
 }
 
 function endOfMonth(date: Date) {
@@ -119,20 +147,11 @@ export function TripsPage() {
   const [dayLastPage, setDayLastPage] = useState(1)
   const [dayLoading, setDayLoading] = useState(false)
   const [dayError, setDayError] = useState('')
+  const hasBootstrappedCalendar = useRef(false)
   const navigate = useNavigate()
 
   const calendarRange = useMemo(() => {
-    const monthStart = startOfMonth(monthCursor)
-    const monthEnd = endOfMonth(monthCursor)
-    const rangeStart = startOfWeek(monthStart, WEEK_START)
-    const rangeEnd = endOfWeek(monthEnd, WEEK_START)
-
-    return {
-      rangeStart,
-      rangeEnd,
-      from: toDateKey(rangeStart),
-      to: toDateKey(rangeEnd),
-    }
+    return buildCalendarRange(monthCursor)
   }, [monthCursor])
 
   const calendarMap = useMemo(() => {
@@ -168,6 +187,10 @@ export function TripsPage() {
 
   const selectedCalendarDay = useMemo(() => calendarMap.get(selectedDay), [calendarMap, selectedDay])
 
+  const selectedCalendarTrips = useMemo(() => {
+    return selectedCalendarDay?.trips ?? []
+  }, [selectedCalendarDay])
+
   const dayStatusBreakdown = useMemo(() => {
     return Object.entries(daySummary.by_status)
       .map(([status, count]) => ({
@@ -198,14 +221,17 @@ export function TripsPage() {
       try {
         const normalizedSearch = normalizeSearchText(truckSearch)
         const hasSearch = Boolean(normalizedSearch)
-        const hasDateFilter = Boolean(fromDate || toDate)
-        const useClientFiltering = hasSearch || hasDateFilter
+        const baseParams = {
+          status: statusFilter === 'ALL' ? undefined : statusFilter,
+          from: fromDate || undefined,
+          to: toDate || undefined,
+        }
 
-        if (!useClientFiltering) {
+        if (!hasSearch) {
           const response = await getTrips({
             limit: PAGE_SIZE,
             page,
-            status: statusFilter === 'ALL' ? undefined : statusFilter,
+            ...baseParams,
           })
 
           if (active) {
@@ -219,7 +245,7 @@ export function TripsPage() {
         const firstPage = await getTrips({
           limit: SEARCH_FETCH_LIMIT,
           page: 1,
-          status: statusFilter === 'ALL' ? undefined : statusFilter,
+          ...baseParams,
         })
 
         const pageRequests: Array<ReturnType<typeof getTrips>> = []
@@ -228,7 +254,7 @@ export function TripsPage() {
             getTrips({
               limit: SEARCH_FETCH_LIMIT,
               page: currentPage,
-              status: statusFilter === 'ALL' ? undefined : statusFilter,
+              ...baseParams,
             }),
           )
         }
@@ -237,7 +263,7 @@ export function TripsPage() {
         const allTrips = [firstPage, ...remainingPages].flatMap((response) => response.items)
 
         const filteredTrips = allTrips.filter((trip) => {
-          const dateKey = extractTripDateKey(trip.started_at) ?? extractTripDateKey(trip.completed_at)
+          const dateKey = getTripDateKey(trip)
           if (!isInDateRange(dateKey, fromDate, toDate)) {
             return false
           }
@@ -288,16 +314,92 @@ export function TripsPage() {
       setCalendarLoading(true)
 
       try {
-        const data = await getTripsCalendar({
+        if (import.meta.env.DEV) {
+          console.log('[TripsPage] loadCalendar:start', {
+            from: calendarRange.from,
+            to: calendarRange.to,
+            status: statusFilter === 'ALL' ? undefined : statusFilter,
+            monthCursor: monthCursor.toISOString(),
+          })
+        }
+
+        let nextMonthCursor: Date | null = null
+        let data = await getTripsCalendar({
           from: calendarRange.from,
           to: calendarRange.to,
-          day_start: CALENDAR_DAY_START,
-          timezone: DEFAULT_TIMEZONE,
           status: statusFilter === 'ALL' ? undefined : statusFilter,
         })
 
+        if (import.meta.env.DEV) {
+          console.log('[TripsPage] loadCalendar:current-month-result', {
+            dayCount: data.length,
+            daysWithTrips: data.filter((day) => (day.total ?? 0) > 0 || (day.trips?.length ?? 0) > 0).length,
+            firstDay: data[0]?.day ?? null,
+            lastDay: data[data.length - 1]?.day ?? null,
+          })
+        }
+
+        if (!hasBootstrappedCalendar.current && !calendarHasTrips(data)) {
+          for (let offset = 1; offset <= 6; offset += 1) {
+            const candidateCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - offset, 1)
+            const candidateRange = buildCalendarRange(candidateCursor)
+
+            if (import.meta.env.DEV) {
+              console.log('[TripsPage] loadCalendar:fallback-attempt', {
+                offset,
+                from: candidateRange.from,
+                to: candidateRange.to,
+              })
+            }
+
+            const candidateData = await getTripsCalendar({
+              from: candidateRange.from,
+              to: candidateRange.to,
+              status: statusFilter === 'ALL' ? undefined : statusFilter,
+            })
+
+            if (import.meta.env.DEV) {
+              console.log('[TripsPage] loadCalendar:fallback-result', {
+                offset,
+                dayCount: candidateData.length,
+                daysWithTrips: candidateData.filter((day) => (day.total ?? 0) > 0 || (day.trips?.length ?? 0) > 0).length,
+              })
+            }
+
+            if (calendarHasTrips(candidateData)) {
+              data = candidateData
+              nextMonthCursor = candidateCursor
+              break
+            }
+          }
+        }
+
         if (active) {
           setCalendarDays(data)
+
+          if (import.meta.env.DEV) {
+            console.log('[TripsPage] loadCalendar:applied', {
+              selectedDay: latestCalendarDay(data)?.day ?? null,
+              calendarDays: data.length,
+            })
+          }
+
+          const selectedData = latestCalendarDay(data)
+          if (selectedData) {
+            setSelectedDay(selectedData.day)
+            const parsedSelectedDay = parseDateKey(selectedData.day)
+            if (parsedSelectedDay.getMonth() !== monthCursor.getMonth() || parsedSelectedDay.getFullYear() !== monthCursor.getFullYear()) {
+              setMonthCursor(startOfMonth(parsedSelectedDay))
+            }
+          } else if (!hasBootstrappedCalendar.current) {
+            setSelectedDay(todayKey)
+          }
+
+          if (nextMonthCursor) {
+            setMonthCursor(nextMonthCursor)
+          }
+
+          hasBootstrappedCalendar.current = true
         }
       } catch (requestError) {
         if (active) {
@@ -315,7 +417,7 @@ export function TripsPage() {
     return () => {
       active = false
     }
-  }, [calendarRange.from, calendarRange.to, statusFilter, viewMode])
+  }, [calendarRange.from, calendarRange.to, monthCursor, statusFilter, todayKey, viewMode])
 
   useEffect(() => {
     if (viewMode !== 'calendar') return
@@ -326,19 +428,61 @@ export function TripsPage() {
       setDayError('')
       setDayLoading(true)
 
+      const hasEmbeddedTrips = Array.isArray(selectedCalendarDay?.trips)
+      const shouldUseEmbeddedTrips = hasEmbeddedTrips && (selectedCalendarTrips.length > 0 || (selectedCalendarDay?.total ?? 0) === 0)
+
+      if (import.meta.env.DEV) {
+        console.log('[TripsPage] loadDayTrips:start', {
+          selectedDay,
+          status: statusFilter === 'ALL' ? undefined : statusFilter,
+          hasEmbeddedTrips,
+          embeddedTripCount: selectedCalendarTrips.length,
+          selectedCalendarDayTotal: selectedCalendarDay?.total ?? null,
+          shouldUseEmbeddedTrips,
+        })
+      }
+
+      if (shouldUseEmbeddedTrips) {
+        if (active) {
+          setDayTrips(selectedCalendarTrips)
+          setDaySummary({
+            total: selectedCalendarDay?.total ?? selectedCalendarTrips.length,
+            active: selectedCalendarDay?.active ?? 0,
+            completed: selectedCalendarDay?.completed ?? 0,
+            by_status: selectedCalendarDay?.by_status ?? {},
+          })
+          setDayLastPage(1)
+          setDayPage(1)
+          setDayLoading(false)
+        }
+        return
+      }
+
       try {
         const response = await getTripsByDay({
           day: selectedDay,
-          day_start: CALENDAR_DAY_START,
-          timezone: DEFAULT_TIMEZONE,
-          page: dayPage,
-          limit: PAGE_SIZE,
+          all: true,
           status: statusFilter === 'ALL' ? undefined : statusFilter,
         })
 
+        if (import.meta.env.DEV) {
+          console.log('[TripsPage] loadDayTrips:response', {
+            itemCount: response.items.length,
+            total: response.total,
+            lastPage: response.lastPage,
+            page: response.page,
+            perPage: response.perPage,
+            totalItems: response.total_items ?? null,
+            window: response.window ?? null,
+            summary: response.summary,
+            firstTrip: response.items[0] ?? null,
+          })
+        }
+
         if (active) {
           setDayTrips(response.items)
-          setDayLastPage(response.lastPage)
+          setDayLastPage(1)
+          setDayPage(1)
           setDaySummary(response.summary)
         }
       } catch (requestError) {
@@ -360,7 +504,7 @@ export function TripsPage() {
     return () => {
       active = false
     }
-  }, [dayPage, selectedDay, statusFilter, viewMode])
+  }, [selectedCalendarDay, selectedCalendarTrips, selectedDay, statusFilter, viewMode])
 
   useEffect(() => {
     if (viewMode !== 'calendar') return
@@ -588,7 +732,7 @@ export function TripsPage() {
                     {
                       key: 'depart',
                       header: 'Départ',
-                      render: (trip) => formatDate(trip.started_at),
+                      render: (trip) => formatDate(trip.created_at ?? trip.started_at),
                     },
                     {
                       key: 'retour',
@@ -735,7 +879,7 @@ export function TripsPage() {
               {
                 key: 'depart',
                 header: 'Heure départ',
-                render: (trip) => formatDate(trip.started_at),
+                    render: (trip) => formatDate(trip.created_at ?? trip.started_at),
               },
               {
                 key: 'retour',

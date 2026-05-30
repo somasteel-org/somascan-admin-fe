@@ -38,7 +38,7 @@ import { toFriendlyLocation, toFriendlyTripAction, toFriendlyTripStatus } from '
 
 const PIE_COLORS = ['#F2B841', '#0EA5E9', '#22C55E', '#F97316', '#EF4444', '#64748B', '#14B8A6']
 const CALENDAR_DAY_START = '07:00'
-const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+const DEFAULT_TIMEZONE = 'UTC'
 const DASHBOARD_CALENDAR_DAYS = 30
 const DASHBOARD_CALENDAR_PREVIEW = 7
 

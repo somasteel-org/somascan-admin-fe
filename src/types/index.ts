@@ -17,6 +17,7 @@ export interface Trip {
   truck_registration_number?: string
   truck_driver_name?: string
   status: string
+  created_at?: string
   started_at: string
   arrived_port_at: string | null
   left_port_at: string | null
@@ -71,6 +72,7 @@ export interface TripCalendarDay {
   active: number
   completed: number
   by_status: Record<string, number>
+  trips?: Trip[]
 }
 
 export interface TripsByDaySummary {
