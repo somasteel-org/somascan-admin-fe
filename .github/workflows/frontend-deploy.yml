@@ -1,0 +1,61 @@
+name: frontend-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_branch:
+        description: "Branch to deploy"
+        type: string
+        required: false
+        default: "master"
+  push:
+    branches:
+      - "master"
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      DEPLOY_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_branch || github.ref_name }}
+      FRONTEND_DEPLOY_PATH: ${{ secrets.SSH_FE_PATH }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_BRANCH }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Load SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add SSH known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${SSH_PORT}" -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Change to deployment directory
+        run: |
+          ssh -p "${SSH_PORT}" ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "cd '${FRONTEND_DEPLOY_PATH}' && pwd"
+
+      - name: Sync dist to host
+        run: |
+          rsync -az --delete -e "ssh -p ${SSH_PORT}" dist/ \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:"${FRONTEND_DEPLOY_PATH}/"
