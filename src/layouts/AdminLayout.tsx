@@ -1,4 +1,4 @@
-import { LayoutDashboard, LogOut, Truck, Users, Route, ChartColumn, ScrollText, ListOrdered, Wrench } from 'lucide-react'
+import { LayoutDashboard, LogOut, Truck, Users, Route, ChartColumn, ScrollText, ListOrdered } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { logout as logoutRequest } from '../api/auth'
 import { useAuth } from '../hooks/useAuth'
@@ -9,7 +9,7 @@ const menuItems = [
   { to: '/trucks', label: 'Camions', icon: Truck },
   { to: '/users', label: 'Opérateurs', icon: Users },
   { to: '/trips', label: 'Trajets', icon: Route },
-  { to: '/maintenance', label: 'Maintenance', icon: Wrench },
+
   { to: '/reports', label: 'Rapports', icon: ChartColumn },
   { to: '/scan-logs', label: 'Logs', icon: ScrollText },
   { to: '/scan-flow', label: 'Flux de scan', icon: ListOrdered },

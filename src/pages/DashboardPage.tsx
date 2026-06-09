@@ -842,7 +842,7 @@ export function DashboardPage() {
         </Card>
       </section>
 
-      <section className="mt-4 grid gap-4 lg:grid-cols-3">
+      <section className="mt-4">
         <Card className="min-w-0">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-zinc-900">Évolution des trajets</h2>
@@ -850,9 +850,9 @@ export function DashboardPage() {
               Voir plus
             </Button>
           </div>
-          <div ref={evolutionChart.ref} className="h-[260px] min-w-0">
+          <div ref={evolutionChart.ref} className="h-[400px] min-w-0">
             {evolutionChart.ready ? (
-              <ResponsiveContainer width="100%" height={260} minWidth={0} minHeight={260}>
+              <ResponsiveContainer width="100%" height={400} minWidth={0} minHeight={400}>
                 <LineChart data={evolution}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
@@ -864,7 +864,9 @@ export function DashboardPage() {
             ) : null}
           </div>
         </Card>
+      </section>
 
+      <section className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card className="min-w-0">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-zinc-900">Répartition des durées</h2>

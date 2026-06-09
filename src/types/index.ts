@@ -4,19 +4,6 @@ export type ScanAction = 'START' | 'ARRIVE' | 'LEAVE' | 'RETURN' | 'CANCEL'
 export type TripStatus = 'STARTED' | 'ARRIVED_PORT' | 'LEFT_PORT' | 'COMPLETED' | 'CANCELLED' | 'UNKNOWN'
 export type ScanFlowStep = 'STARTED' | 'ARRIVED_PORT' | 'LEFT_PORT' | 'COMPLETED'
 
-export interface MaintenanceRecord {
-  id: number
-  truck_id: number
-  trip_id?: number | null
-  type: string
-  description: string
-  cost: string | number
-  date: string
-  created_at?: string
-  updated_at?: string
-  truck?: Truck
-}
-
 export interface Truck {
   id: number
   registration_number: string
@@ -26,7 +13,6 @@ export interface Truck {
   created_at?: string
   updated_at?: string
   active_trip?: Trip | null
-  maintenance_records?: MaintenanceRecord[]
 }
 
 export interface TripDurations {
