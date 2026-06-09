@@ -731,6 +731,17 @@ export function TripsPage() {
                       render: (trip) => toFriendlyTripStatus(trip.status),
                     },
                     {
+                      key: 'flags',
+                      header: 'Alertes',
+                      render: (trip) => (
+                        <div className="flex items-center gap-1">
+                          {trip.is_delayed && <span title="Trajet en retard">⚠️</span>}
+                          {trip.notes && <span title={trip.notes}>📝</span>}
+                          {trip.status === 'CANCELLED' && <span className="rounded bg-red-100 px-1 py-0.5 text-[10px] font-bold text-red-700">ANNULÉ</span>}
+                        </div>
+                      ),
+                    },
+                    {
                       key: 'depart',
                       header: 'Départ',
                       render: (trip) => formatDate(trip.created_at ?? trip.started_at),
@@ -878,6 +889,17 @@ export function TripsPage() {
                 render: (trip) => trip.truck_driver_name ?? '-',
               },
               { key: 'statut', header: 'Statut', render: (trip) => toFriendlyTripStatus(trip.status) },
+              {
+                key: 'flags',
+                header: 'Alertes',
+                render: (trip) => (
+                  <div className="flex items-center gap-1">
+                    {trip.is_delayed && <span title="Trajet en retard">⚠️</span>}
+                    {trip.notes && <span title={trip.notes}>📝</span>}
+                    {trip.status === 'CANCELLED' && <span className="rounded bg-red-100 px-1 py-0.5 text-[10px] font-bold text-red-700">ANNULÉ</span>}
+                  </div>
+                ),
+              },
               {
                 key: 'depart',
                 header: 'Heure départ',
