@@ -10,6 +10,10 @@ import {
   getApiErrorMessage,
   getTrucks,
   updateTruck,
+  searchTrucks,
+  getTruckStats,
+  bulkActivateTrucks,
+  bulkDeactivateTrucks,
 } from '../api/trucks'
 import { asRecord } from '../api/http'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
@@ -19,13 +23,17 @@ import { PageHeader } from '../components/common/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
-import type { Truck } from '../types'
+import { KpiCard } from '../components/common/KpiCard'
+import type { Truck, TruckStats } from '../types'
 
 const PAGE_SIZE = 20
 
 export function TrucksPage() {
   const [trucks, setTrucks] = useState<Truck[]>([])
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [stats, setStats] = useState<TruckStats | null>(null)
+  const [selectedTrucks, setSelectedTrucks] = useState<Set<number>>(new Set())
   const [page, setPage] = useState(1)
   const [lastPage, setLastPage] = useState(1)
   const [openModal, setOpenModal] = useState(false)
@@ -44,6 +52,15 @@ export function TrucksPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState('')
 
+  async function loadStats() {
+    try {
+      const s = await getTruckStats()
+      setStats(s)
+    } catch {
+      // ignore
+    }
+  }
+
   async function loadTrucks(targetPage = page) {
     const isActiveFilter =
       statusFilter === 'ALL'
@@ -52,15 +69,22 @@ export function TrucksPage() {
           ? true
           : false
 
-    const response = await getTrucks({
-      limit: PAGE_SIZE,
-      page: targetPage,
-      is_active: isActiveFilter,
-    })
+    if (searchQuery.trim()) {
+      const items = await searchTrucks(searchQuery.trim(), isActiveFilter)
+      setTrucks(items)
+      setPage(1)
+      setLastPage(1)
+    } else {
+      const response = await getTrucks({
+        limit: PAGE_SIZE,
+        page: targetPage,
+        is_active: isActiveFilter,
+      })
 
-    setTrucks(response.items)
-    setPage(response.page)
-    setLastPage(response.lastPage)
+      setTrucks(response.items)
+      setPage(response.page)
+      setLastPage(response.lastPage)
+    }
   }
 
   useEffect(() => {
@@ -69,6 +93,7 @@ export function TrucksPage() {
     async function initialize() {
       setError('')
       try {
+        await loadStats()
         const isActiveFilter =
           statusFilter === 'ALL'
             ? undefined
@@ -76,15 +101,23 @@ export function TrucksPage() {
               ? true
               : false
 
-        const response = await getTrucks({
-          limit: PAGE_SIZE,
-          page,
-          is_active: isActiveFilter,
-        })
+        if (searchQuery.trim()) {
+          const items = await searchTrucks(searchQuery.trim(), isActiveFilter)
+          if (active) {
+            setTrucks(items)
+            setLastPage(1)
+          }
+        } else {
+          const response = await getTrucks({
+            limit: PAGE_SIZE,
+            page,
+            is_active: isActiveFilter,
+          })
 
-        if (active) {
-          setTrucks(response.items)
-          setLastPage(response.lastPage)
+          if (active) {
+            setTrucks(response.items)
+            setLastPage(response.lastPage)
+          }
         }
       } catch (requestError) {
         if (active) {
@@ -98,7 +131,38 @@ export function TrucksPage() {
     return () => {
       active = false
     }
-  }, [page, statusFilter])
+  }, [page, statusFilter, searchQuery])
+
+  function toggleSelection(id: number) {
+    const next = new Set(selectedTrucks)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelectedTrucks(next)
+  }
+
+  async function handleBulkActivate() {
+    if (selectedTrucks.size === 0) return
+    try {
+      await bulkActivateTrucks(Array.from(selectedTrucks))
+      setSelectedTrucks(new Set())
+      await loadTrucks(page)
+      await loadStats()
+    } catch (e) {
+      setError(getApiErrorMessage(e))
+    }
+  }
+
+  async function handleBulkDeactivate() {
+    if (selectedTrucks.size === 0) return
+    try {
+      await bulkDeactivateTrucks(Array.from(selectedTrucks))
+      setSelectedTrucks(new Set())
+      await loadTrucks(page)
+      await loadStats()
+    } catch (e) {
+      setError(getApiErrorMessage(e))
+    }
+  }
 
   function openCreateModal() {
     setEditing(null)
@@ -283,18 +347,44 @@ export function TrucksPage() {
         actions={<Button onClick={openCreateModal}>Ajouter un camion</Button>}
       />
 
-      <div className="mb-4 max-w-xs">
-        <Select
-          value={statusFilter}
-          onChange={(event) => {
-            setStatusFilter(event.target.value as typeof statusFilter)
-            setPage(1)
-          }}
-        >
-          <option value="ALL">Tous les statuts</option>
-          <option value="ACTIVE">Actif</option>
-          <option value="INACTIVE">Inactif</option>
-        </Select>
+      <div className="mb-4 grid gap-4 sm:grid-cols-3">
+        <KpiCard label="Camions enregistrés" value={stats?.total ?? '-'} />
+        <KpiCard label="Camions actifs" value={stats?.active ?? '-'} />
+        <KpiCard label="Camions inactifs" value={stats?.inactive ?? '-'} />
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-4">
+        <div className="w-full max-w-xs">
+          <Input
+            placeholder="Rechercher (immatriculation, chauffeur...)"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value)
+              setPage(1)
+            }}
+          />
+        </div>
+        <div className="w-full max-w-xs">
+          <Select
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(event.target.value as typeof statusFilter)
+              setPage(1)
+            }}
+          >
+            <option value="ALL">Tous les statuts</option>
+            <option value="ACTIVE">Actif</option>
+            <option value="INACTIVE">Inactif</option>
+          </Select>
+        </div>
+        
+        {selectedTrucks.size > 0 && (
+          <div className="flex items-center gap-2 border-l border-zinc-200 pl-4">
+            <span className="text-sm font-medium text-zinc-600">{selectedTrucks.size} sélectionné(s)</span>
+            <Button variant="secondary" onClick={handleBulkActivate}>Activer</Button>
+            <Button variant="secondary" onClick={handleBulkDeactivate}>Désactiver</Button>
+          </div>
+        )}
       </div>
 
       {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
@@ -302,6 +392,17 @@ export function TrucksPage() {
       <DataTable
         data={trucks}
         columns={[
+          {
+            key: 'select',
+            header: '',
+            render: (truck) => (
+              <input 
+                type="checkbox" 
+                checked={selectedTrucks.has(truck.id)} 
+                onChange={() => toggleSelection(truck.id)} 
+              />
+            ),
+          },
           {
             key: 'immatriculation',
             header: 'Numéro d’immatriculation',

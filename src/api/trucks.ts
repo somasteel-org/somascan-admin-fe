@@ -5,7 +5,7 @@ import {
   parsePaginated,
   type PaginationResult,
 } from './http'
-import type { Truck } from '../types'
+import type { Truck, TruckStats, Trip } from '../types'
 
 export interface ListTrucksParams {
   limit?: number
@@ -36,6 +36,10 @@ function normalizeTruck(raw: unknown): Truck {
     driver_name: row.driver_name == null ? null : String(row.driver_name),
     qr_code: row.qr_code ? String(row.qr_code) : null,
     is_active: toBoolean(row.is_active),
+    created_at: row.created_at ? String(row.created_at) : undefined,
+    updated_at: row.updated_at ? String(row.updated_at) : undefined,
+    active_trip: row.active_trip ? (row.active_trip as Trip) : null,
+    maintenance_records: Array.isArray(row.maintenance_records) ? (row.maintenance_records as any) : undefined,
   }
 }
 
@@ -77,7 +81,7 @@ export async function updateTruck(id: number, payload: TruckPayload) {
     is_active: payload.is_active,
   }
 
-  const { data } = await apiClient.patch<unknown>(`/trucks/${id}`, requestBody)
+  const { data } = await apiClient.put<unknown>(`/trucks/${id}`, requestBody)
   return extractTruck(data)
 }
 
@@ -118,4 +122,37 @@ export async function getTruckBasic(id: number) {
     is_active: toBoolean(source.is_active),
     active_trip_status: source.active_trip_status ? String(source.active_trip_status) : null,
   }
+}
+
+export async function searchTrucks(query: string, is_active?: boolean) {
+  const params: Record<string, unknown> = { search: query }
+  if (typeof is_active === 'boolean') {
+    params.is_active = is_active
+  }
+  const { data } = await apiClient.get<unknown>('/trucks/search', { params })
+  return parsePaginated(data, normalizeTruck).items
+}
+
+export async function getTruckStats(): Promise<TruckStats> {
+  const { data } = await apiClient.get<unknown>('/trucks/stats')
+  const payload = asRecord(data)
+  const source = payload.data ? asRecord(payload.data) : payload
+  return {
+    total: Number(source.total ?? 0),
+    active: Number(source.active ?? 0),
+    inactive: Number(source.inactive ?? 0),
+  }
+}
+
+export async function bulkActivateTrucks(truck_ids: number[]) {
+  await apiClient.post('/trucks/bulk-activate', { truck_ids })
+}
+
+export async function bulkDeactivateTrucks(truck_ids: number[]) {
+  await apiClient.post('/trucks/bulk-deactivate', { truck_ids })
+}
+
+export async function getTruckTrips(id: number) {
+  const { data } = await apiClient.get<unknown>(`/trucks/${id}/trips`)
+  return parsePaginated(data, (raw) => asRecord(raw) as unknown as Trip).items
 }

@@ -5,7 +5,7 @@ import {
   parsePaginated,
   type PaginationResult,
 } from './http'
-import type { LocationType, Role, User } from '../types'
+import type { LocationType, Role, User, UserStats } from '../types'
 
 export interface ListUsersParams {
   limit?: number
@@ -41,6 +41,8 @@ function normalizeUser(raw: unknown): User {
     email: String(row.email ?? ''),
     role: String(row.role ?? 'COMPANY_OPERATOR') as Role,
     location,
+    created_at: row.created_at ? String(row.created_at) : undefined,
+    updated_at: row.updated_at ? String(row.updated_at) : undefined,
   }
 }
 
@@ -83,10 +85,44 @@ export async function updateUser(id: number, payload: UpdateUserPayload) {
     location: payload.location ?? null,
   }
 
-  const { data } = await apiClient.patch<unknown>(`/users/${id}`, requestBody)
+  const { data } = await apiClient.put<unknown>(`/users/${id}`, requestBody)
   return extractUser(data)
 }
 
 export async function deleteUser(id: number) {
   await apiClient.delete(`/users/${id}`)
+}
+
+export async function searchUsers(query: string, role?: Role) {
+  const params: Record<string, unknown> = { search: query }
+  if (role && role !== 'ALL' as any) {
+    params.role = role
+  }
+  const { data } = await apiClient.get<unknown>('/users/search', { params })
+  return parsePaginated(data, normalizeUser).items
+}
+
+export async function getUserStats(): Promise<UserStats> {
+  const { data } = await apiClient.get<unknown>('/users/stats')
+  const payload = asRecord(data)
+  const source = payload.data ? asRecord(payload.data) : payload
+  return {
+    total: Number(source.total ?? 0),
+    by_role: asRecord(source.by_role) as Record<string, number>,
+    by_location: asRecord(source.by_location) as Record<string, number>,
+  }
+}
+
+export async function getUserActivity(id: number) {
+  const { data } = await apiClient.get<unknown>(`/users/${id}/activity`)
+  const payload = asRecord(data)
+  const source = payload.data ? asRecord(payload.data) : payload
+  return {
+    scans: Number(source.scans ?? 0),
+    latest_scan: source.latest_scan ? String(source.latest_scan) : null,
+  }
+}
+
+export async function resetUserPassword(id: number, password: string) {
+  await apiClient.patch(`/users/${id}/reset-password`, { password })
 }

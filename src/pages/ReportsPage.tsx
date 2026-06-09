@@ -6,6 +6,7 @@ import { DataTable } from '../components/common/DataTable'
 import { PageHeader } from '../components/common/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
 import type { DelayItem } from '../types'
 import { formatDate, formatDuration } from '../utils/format'
 
@@ -13,6 +14,8 @@ export function ReportsPage() {
   const [delays, setDelays] = useState<DelayItem[]>([])
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
 
   useEffect(() => {
     async function loadDelays() {
@@ -33,14 +36,14 @@ export function ReportsPage() {
     setError('')
 
     try {
-      const payload = await exportReports()
-      const blob = new Blob([JSON.stringify(payload, null, 2)], {
-        type: 'application/json;charset=utf-8',
+      const blob = await exportReports({
+        start_date: startDate || undefined,
+        end_date: endDate || undefined
       })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = 'rapport-trajets.json'
+      link.download = 'rapport-trajets.xlsx'
       link.click()
       window.URL.revokeObjectURL(url)
     } catch (requestError) {
@@ -56,9 +59,24 @@ export function ReportsPage() {
         title="Rapports"
         description="Analyse des retards et export des statistiques globales."
         actions={
-          <Button onClick={handleExport} disabled={exporting}>
-            {exporting ? 'Export en cours...' : 'Exporter CSV / Excel'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Input 
+              type="date" 
+              value={startDate} 
+              onChange={(e) => setStartDate(e.target.value)} 
+              className="text-sm py-1"
+            />
+            <span className="text-zinc-500">au</span>
+            <Input 
+              type="date" 
+              value={endDate} 
+              onChange={(e) => setEndDate(e.target.value)}
+              className="text-sm py-1"
+            />
+            <Button onClick={handleExport} disabled={exporting}>
+              {exporting ? 'Export en cours...' : 'Exporter (.xlsx)'}
+            </Button>
+          </div>
         }
       />
 

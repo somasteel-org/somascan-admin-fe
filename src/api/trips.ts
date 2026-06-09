@@ -5,7 +5,7 @@ import {
   parsePaginated,
   type PaginationResult,
 } from './http'
-import type { Trip, TripCalendarDay, TripLog, TripsByDaySummary } from '../types'
+import type { Trip, TripCalendarDay, TripLog, TripsByDaySummary, TripStats, TripTimelineEvent } from '../types'
 
 export interface ListTripsParams {
   limit?: number
@@ -89,11 +89,19 @@ function normalizeTrip(raw: unknown): Trip {
       row.truck_driver_name ?? row.driver_name ?? truck.driver_name,
     ) ?? undefined,
     status: String(row.status ?? 'UNKNOWN'),
+    next_expected_step: asNullableString(row.next_expected_step) ?? undefined,
+    current_location: asNullableString(row.current_location) ?? undefined,
+    last_scan_at: asNullableString(row.last_scan_at),
+    is_active: typeof row.is_active === 'boolean' ? row.is_active : row.is_active == null ? null : undefined,
+    durations: row.durations ? (row.durations as any) : undefined,
     created_at: asNullableString(row.created_at ?? row.createdAt) ?? undefined,
     started_at: String(row.started_at ?? row.created_at ?? ''),
     arrived_port_at: asNullableString(row.arrived_port_at),
     left_port_at: asNullableString(row.left_port_at),
     completed_at: asNullableString(row.completed_at),
+    cancelled_at: asNullableString(row.cancelled_at),
+    notes: asNullableString(row.notes),
+    truck: row.truck ? (row.truck as any) : undefined,
   }
 }
 
@@ -242,4 +250,48 @@ export async function getTripsByDay(params: TripsByDayParams): Promise<TripsByDa
       : undefined,
     total_items: totalItems,
   }
+}
+
+export async function searchTrips(params: ListTripsParams) {
+  const { data } = await apiClient.get<unknown>('/trips/search', { params })
+  return parsePaginated(data, normalizeTrip).items
+}
+
+export async function getTripStats(): Promise<TripStats> {
+  const { data } = await apiClient.get<unknown>('/trips/stats')
+  const payload = asRecord(data)
+  const source = payload.data ? asRecord(payload.data) : payload
+  return {
+    total: Number(source.total ?? 0),
+    active: Number(source.active ?? 0),
+    completed: Number(source.completed ?? 0),
+    cancelled: Number(source.cancelled ?? 0),
+  }
+}
+
+export async function getTripTimeline(id: number): Promise<TripTimelineEvent[]> {
+  const { data } = await apiClient.get<unknown>(`/trips/${id}/timeline`)
+  const payload = asRecord(data)
+  const source = Array.isArray(payload.data) ? payload.data : Array.isArray(data) ? data : []
+  return source.map((item) => {
+    const row = asRecord(item)
+    return {
+      action: String(row.action ?? ''),
+      location: row.location ? String(row.location) : null,
+      scanned_at: String(row.scanned_at ?? ''),
+      user_name: row.user_name ? String(row.user_name) : null,
+    }
+  })
+}
+
+export async function cancelTrip(id: number, notes?: string) {
+  await apiClient.patch(`/trips/${id}/cancel`, { notes })
+}
+
+export async function updateTripNotes(id: number, notes: string) {
+  await apiClient.patch(`/trips/${id}/notes`, { notes })
+}
+
+export async function deleteTrip(id: number) {
+  await apiClient.delete(`/trips/${id}`)
 }

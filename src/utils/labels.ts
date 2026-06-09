@@ -5,6 +5,7 @@ const TRIP_STATUS_LABELS: Record<string, string> = {
   ARRIVED_PORT: 'Arrive au port',
   LEFT_PORT: 'Sortie du port',
   COMPLETED: 'Trajet termine',
+  CANCELLED: 'Annule',
 }
 
 const TRIP_ACTION_LABELS: Record<string, string> = {
@@ -18,6 +19,7 @@ const TRIP_ACTION_LABELS: Record<string, string> = {
   LEFT_PORT: 'Sortie du port',
   RETURN: 'Retour a l entreprise',
   COMPLETED: 'Retour a l entreprise',
+  CANCEL: 'Annulation',
 }
 
 const SCAN_FLOW_STEP_LABELS: Record<ScanFlowStep, string> = {

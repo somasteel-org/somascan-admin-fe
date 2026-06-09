@@ -5,6 +5,10 @@ import {
   getApiErrorMessage,
   getUsers,
   updateUser,
+  searchUsers,
+  getUserStats,
+  getUserActivity,
+  resetUserPassword,
 } from '../api/users'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { DataTable } from '../components/common/DataTable'
@@ -13,7 +17,8 @@ import { PageHeader } from '../components/common/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
-import type { LocationType, Role, User } from '../types'
+import type { LocationType, Role, User, UserStats } from '../types'
+import { KpiCard } from '../components/common/KpiCard'
 import { toFriendlyLocation, toFriendlyRole } from '../utils/labels'
 
 const PAGE_SIZE = 20
@@ -22,8 +27,14 @@ export function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
   const [roleFilter, setRoleFilter] = useState<'ALL' | Role>('ALL')
   const [locationFilter, setLocationFilter] = useState<'ALL' | LocationType>('ALL')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [stats, setStats] = useState<UserStats | null>(null)
   const [page, setPage] = useState(1)
   const [lastPage, setLastPage] = useState(1)
+
+  const [activityModalOpen, setActivityModalOpen] = useState(false)
+  const [selectedUserActivity, setSelectedUserActivity] = useState<{ scans: number; latest_scan: string | null } | null>(null)
+  const [activityLoading, setActivityLoading] = useState(false)
 
   const [openModal, setOpenModal] = useState(false)
   const [editing, setEditing] = useState<User | null>(null)
@@ -37,17 +48,36 @@ export function UsersPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState('')
 
-  async function loadUsers(targetPage = page) {
-    const response = await getUsers({
-      limit: PAGE_SIZE,
-      page: targetPage,
-      role: roleFilter === 'ALL' ? undefined : roleFilter,
-      location: locationFilter === 'ALL' ? undefined : locationFilter,
-    })
+  async function loadStats() {
+    try {
+      const s = await getUserStats()
+      setStats(s)
+    } catch {
+      // ignore
+    }
+  }
 
-    setUsers(response.items)
-    setPage(response.page)
-    setLastPage(response.lastPage)
+  async function loadUsers(targetPage = page) {
+    const roleParam = roleFilter === 'ALL' ? undefined : roleFilter
+    const locParam = locationFilter === 'ALL' ? undefined : locationFilter
+
+    if (searchQuery.trim()) {
+      const items = await searchUsers(searchQuery.trim(), roleParam)
+      setUsers(locParam ? items.filter(u => u.location === locParam) : items)
+      setPage(1)
+      setLastPage(1)
+    } else {
+      const response = await getUsers({
+        limit: PAGE_SIZE,
+        page: targetPage,
+        role: roleParam,
+        location: locParam,
+      })
+
+      setUsers(response.items)
+      setPage(response.page)
+      setLastPage(response.lastPage)
+    }
   }
 
   useEffect(() => {
@@ -56,16 +86,28 @@ export function UsersPage() {
     async function initialize() {
       setError('')
       try {
-        const response = await getUsers({
-          limit: PAGE_SIZE,
-          page,
-          role: roleFilter === 'ALL' ? undefined : roleFilter,
-          location: locationFilter === 'ALL' ? undefined : locationFilter,
-        })
+        await loadStats()
+        const roleParam = roleFilter === 'ALL' ? undefined : roleFilter
+        const locParam = locationFilter === 'ALL' ? undefined : locationFilter
 
-        if (active) {
-          setUsers(response.items)
-          setLastPage(response.lastPage)
+        if (searchQuery.trim()) {
+          const items = await searchUsers(searchQuery.trim(), roleParam)
+          if (active) {
+            setUsers(locParam ? items.filter(u => u.location === locParam) : items)
+            setLastPage(1)
+          }
+        } else {
+          const response = await getUsers({
+            limit: PAGE_SIZE,
+            page,
+            role: roleParam,
+            location: locParam,
+          })
+
+          if (active) {
+            setUsers(response.items)
+            setLastPage(response.lastPage)
+          }
         }
       } catch (requestError) {
         if (active) {
@@ -79,7 +121,7 @@ export function UsersPage() {
     return () => {
       active = false
     }
-  }, [page, roleFilter, locationFilter])
+  }, [page, roleFilter, locationFilter, searchQuery])
 
   function openCreateModal() {
     setEditing(null)
@@ -154,6 +196,35 @@ export function UsersPage() {
     }
   }
 
+  async function handleViewActivity(user: User) {
+    setActivityModalOpen(true)
+    setActivityLoading(true)
+    setSelectedUserActivity(null)
+    try {
+      const activity = await getUserActivity(user.id)
+      setSelectedUserActivity(activity)
+    } catch (e) {
+      setError(getApiErrorMessage(e))
+    } finally {
+      setActivityLoading(false)
+    }
+  }
+
+  async function handleResetPassword(user: User) {
+    const newPassword = prompt(`Entrez le nouveau mot de passe pour ${user.name} (min 8 caractères):`)
+    if (!newPassword) return
+    if (newPassword.length < 8) {
+      alert("Le mot de passe doit contenir au moins 8 caractères.")
+      return
+    }
+    try {
+      await resetUserPassword(user.id, newPassword)
+      alert("Mot de passe réinitialisé avec succès.")
+    } catch (e) {
+      setError(getApiErrorMessage(e))
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -162,31 +233,51 @@ export function UsersPage() {
         actions={<Button onClick={openCreateModal}>Créer opérateur</Button>}
       />
 
-      <div className="mb-4 grid max-w-2xl gap-3 md:grid-cols-2">
-        <Select
-          value={roleFilter}
-          onChange={(event) => {
-            setRoleFilter(event.target.value as typeof roleFilter)
-            setPage(1)
-          }}
-        >
-          <option value="ALL">Tous les rôles</option>
-          <option value="ADMIN">Administrateur</option>
-          <option value="COMPANY_OPERATOR">Operateur entreprise</option>
-          <option value="PORT_OPERATOR">Operateur port</option>
-        </Select>
+      <div className="mb-4 grid gap-4 sm:grid-cols-3">
+        <KpiCard label="Utilisateurs enregistrés" value={stats?.total ?? '-'} />
+        <KpiCard label="Entreprise / Port" value={stats ? `${stats.by_location?.COMPANY ?? 0} / ${stats.by_location?.PORT ?? 0}` : '-'} />
+        <KpiCard label="Administrateurs" value={stats?.by_role?.ADMIN ?? '-'} />
+      </div>
 
-        <Select
-          value={locationFilter}
-          onChange={(event) => {
-            setLocationFilter(event.target.value as typeof locationFilter)
-            setPage(1)
-          }}
-        >
-          <option value="ALL">Toutes les localisations</option>
-          <option value="COMPANY">Entreprise</option>
-          <option value="PORT">Port</option>
-        </Select>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="w-full max-w-xs">
+          <Input
+            placeholder="Rechercher par nom ou email..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value)
+              setPage(1)
+            }}
+          />
+        </div>
+        <div className="w-full max-w-xs">
+          <Select
+            value={roleFilter}
+            onChange={(event) => {
+              setRoleFilter(event.target.value as typeof roleFilter)
+              setPage(1)
+            }}
+          >
+            <option value="ALL">Tous les rôles</option>
+            <option value="ADMIN">Administrateur</option>
+            <option value="COMPANY_OPERATOR">Operateur entreprise</option>
+            <option value="PORT_OPERATOR">Operateur port</option>
+          </Select>
+        </div>
+
+        <div className="w-full max-w-xs">
+          <Select
+            value={locationFilter}
+            onChange={(event) => {
+              setLocationFilter(event.target.value as typeof locationFilter)
+              setPage(1)
+            }}
+          >
+            <option value="ALL">Toutes les localisations</option>
+            <option value="COMPANY">Entreprise</option>
+            <option value="PORT">Port</option>
+          </Select>
+        </div>
       </div>
 
       {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
@@ -203,8 +294,14 @@ export function UsersPage() {
             header: 'Actions',
             render: (user) => (
               <div className="flex flex-wrap gap-2">
+                <Button variant="ghost" onClick={() => handleViewActivity(user)}>
+                  Activité
+                </Button>
                 <Button variant="secondary" onClick={() => openEditModal(user)}>
                   Modifier
+                </Button>
+                <Button variant="secondary" onClick={() => handleResetPassword(user)}>
+                  Pass
                 </Button>
                 <Button variant="danger" onClick={() => setUserToDelete(user)}>
                   Supprimer
@@ -280,6 +377,24 @@ export function UsersPage() {
             <Button type="submit">Enregistrer</Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={activityModalOpen} title="Activité de l'utilisateur" onClose={() => setActivityModalOpen(false)}>
+        <div className="space-y-4">
+          {activityLoading ? (
+            <p className="text-sm text-zinc-500">Chargement de l'activité...</p>
+          ) : selectedUserActivity ? (
+            <div className="space-y-2">
+              <p className="text-sm text-zinc-700"><strong>Nombre total de scans:</strong> {selectedUserActivity.scans}</p>
+              <p className="text-sm text-zinc-700"><strong>Dernier scan:</strong> {selectedUserActivity.latest_scan || 'Aucun scan'}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-red-600">Impossible de charger l'activité.</p>
+          )}
+          <div className="flex justify-end">
+            <Button onClick={() => setActivityModalOpen(false)}>Fermer</Button>
+          </div>
+        </div>
       </Modal>
 
       <ConfirmDialog

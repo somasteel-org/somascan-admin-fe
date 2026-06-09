@@ -1,4 +1,4 @@
-import { LayoutDashboard, LogOut, Truck, Users, Route, ChartColumn, ScrollText, ListOrdered } from 'lucide-react'
+import { LayoutDashboard, LogOut, Truck, Users, Route, ChartColumn, ScrollText, ListOrdered, Wrench } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { logout as logoutRequest } from '../api/auth'
 import { useAuth } from '../hooks/useAuth'
@@ -9,6 +9,7 @@ const menuItems = [
   { to: '/trucks', label: 'Camions', icon: Truck },
   { to: '/users', label: 'Opérateurs', icon: Users },
   { to: '/trips', label: 'Trajets', icon: Route },
+  { to: '/maintenance', label: 'Maintenance', icon: Wrench },
   { to: '/reports', label: 'Rapports', icon: ChartColumn },
   { to: '/scan-logs', label: 'Logs', icon: ScrollText },
   { to: '/scan-flow', label: 'Flux de scan', icon: ListOrdered },
@@ -78,7 +79,7 @@ export function AdminLayout() {
   return (
     <div className="min-h-screen bg-zinc-100 text-zinc-900">
       <div className="grid min-h-screen w-full grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="border-r border-zinc-200 bg-white p-4">
+        <aside className="sticky top-0 flex h-screen flex-col overflow-y-auto border-r border-zinc-200 bg-white p-4">
           <div className="mb-4 flex justify-center rounded-xl border border-zinc-200 bg-zinc-50 p-3">
             <img src="/SomaSteel_logo.png" alt="SomaSteel" className="h-12 w-auto object-contain" />
           </div>
@@ -111,7 +112,7 @@ export function AdminLayout() {
           <button
             type="button"
             onClick={handleLogout}
-            className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            className="mt-auto inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
           >
             <LogOut size={16} />
             Déconnexion
