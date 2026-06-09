@@ -130,6 +130,25 @@ export function TripDetailPage() {
 
       {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
 
+      {trip?.status === 'CANCELLED' && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4">
+          <div className="flex items-center gap-2 text-red-800">
+            <span className="font-bold">⚠️ Trajet Annulé</span>
+            {trip.cancelled_at && <span>le {formatDate(trip.cancelled_at)}</span>}
+          </div>
+          {trip.notes && <p className="mt-2 text-sm text-red-700">Raison / Notes: {trip.notes}</p>}
+        </div>
+      )}
+
+      {trip?.is_delayed && trip.status !== 'CANCELLED' && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center gap-2 text-amber-800">
+            <span className="font-bold">⚠️ Trajet en retard</span>
+            <span>Ce trajet a dépassé la durée prévue.</span>
+          </div>
+        </div>
+      )}
+
       {trip ? (
         <section className="grid gap-4 lg:grid-cols-2">
           <Card>
@@ -141,6 +160,7 @@ export function TripDetailPage() {
               <li>Heure arrivée port: {formatDate(trip.arrived_port_at)}</li>
               <li>Heure sortie port: {formatDate(trip.left_port_at)}</li>
               <li>Heure retour: {formatDate(trip.completed_at)}</li>
+              {trip.cancelled_at && <li className="font-medium text-red-600">Heure annulation: {formatDate(trip.cancelled_at)}</li>}
               <li>Statut: {toFriendlyTripStatus(trip.status)}</li>
             </ul>
           </Card>

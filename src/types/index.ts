@@ -54,6 +54,7 @@ export interface Trip {
   completed_at: string | null
   cancelled_at?: string | null
   notes?: string | null
+  is_delayed?: boolean
   total_duration_minutes?: number | null
   truck?: Truck
 }
