@@ -11,6 +11,7 @@ import { TripsPage } from '../pages/TripsPage'
 import { UnauthorizedPage } from '../pages/UnauthorizedPage'
 import { TrucksPage } from '../pages/TrucksPage'
 import { UsersPage } from '../pages/UsersPage'
+import { MaintenancePage } from '../pages/MaintenancePage'
 import { ROUTER_MODE } from '../utils/constants'
 import { ProtectedRoute } from './ProtectedRoute'
 
@@ -31,6 +32,7 @@ export function AppRouter() {
             <Route path="/users" element={<UsersPage />} />
             <Route path="/trips" element={<TripsPage />} />
             <Route path="/trips/:id" element={<TripDetailPage />} />
+            <Route path="/maintenance" element={<MaintenancePage />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/scan-logs" element={<ScanLogsPage />} />
             <Route path="/scan-flow" element={<ScanFlowPage />} />

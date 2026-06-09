@@ -15,6 +15,7 @@ import {
   YAxis,
 } from 'recharts'
 import { getReportsDurations, getReportsEvolution, getReportsSummary } from '../api/reports'
+import { getDashboardStats } from '../api/dashboard'
 import { getScanLogs } from '../api/scanLogs'
 import { getTrucks } from '../api/trucks'
 import { getTrips, getTripsCalendar } from '../api/trips'
@@ -26,6 +27,7 @@ import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import type {
   DailyTripEvolution,
+  DashboardStats,
   DurationDistribution,
   ReportSummary,
   ScanLogsSummary,
@@ -172,6 +174,7 @@ export function DashboardPage() {
   const [durations, setDurations] = useState<DurationDistribution[]>([])
   const [trips, setTrips] = useState<Trip[]>([])
   const [trucks, setTrucks] = useState<Truck[]>([])
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
   const [scanSummary, setScanSummary] = useState<ScanLogsSummary | null>(null)
   const [calendarDays, setCalendarDays] = useState<TripCalendarDay[]>([])
   const [calendarError, setCalendarError] = useState('')
@@ -207,6 +210,7 @@ export function DashboardPage() {
           day_start: CALENDAR_DAY_START,
           timezone: DEFAULT_TIMEZONE,
         }),
+        getDashboardStats(),
       ])
 
       if (!active) return
@@ -219,6 +223,7 @@ export function DashboardPage() {
         trucksResult,
         scanResult,
         calendarResult,
+        dashboardStatsResult,
       ] = results
 
       if (summaryResult.status === 'fulfilled') {
@@ -243,6 +248,9 @@ export function DashboardPage() {
         setCalendarDays(calendarResult.value)
       } else {
         setCalendarError('Calendrier indisponible')
+      }
+      if (dashboardStatsResult.status === 'fulfilled') {
+        setDashboardStats(dashboardStatsResult.value)
       }
 
       if (results.some((result) => result.status === 'rejected')) {
@@ -309,16 +317,18 @@ export function DashboardPage() {
 
   const kpiDetails = useMemo(
     () => [
-      { label: 'Nombre total de trajets', value: summary.totalTrips },
-      { label: 'Nombre de trajets actifs', value: summary.activeTrips },
-      { label: 'Camions enregistrés', value: truckTotals.total },
-      { label: 'Camions actifs / inactifs', value: `${truckTotals.active} / ${truckTotals.inactive}` },
+      { label: 'Nombre total de trajets', value: dashboardStats?.total_trips ?? summary.totalTrips },
+      { label: 'Nombre de trajets actifs', value: dashboardStats?.active_trips ?? summary.activeTrips },
+      { label: 'Camions enregistrés', value: dashboardStats?.total_trucks ?? truckTotals.total },
+      { label: 'Camions actifs / inactifs', value: dashboardStats ? `${dashboardStats.active_trucks} / ${dashboardStats.total_trucks - dashboardStats.active_trucks}` : `${truckTotals.active} / ${truckTotals.inactive}` },
+      { label: 'Utilisateurs enregistrés', value: dashboardStats?.total_users ?? '-' },
+      { label: 'Trajets aujourd\'hui', value: dashboardStats?.trips_today ?? '-' },
       { label: 'Durée moyenne d’un trajet', value: formatDuration(tripDurationStats.averageMinutes) },
       { label: 'Temps moyen (Entreprise → Port)', value: formatDuration(summary.avgCompanyToPort) },
       { label: 'Temps moyen au port', value: formatDuration(summary.avgPortDuration) },
       { label: 'Temps moyen (Port → Entreprise)', value: formatDuration(summary.avgPortToCompany) },
     ],
-    [summary, truckTotals, tripDurationStats],
+    [summary, truckTotals, tripDurationStats, dashboardStats],
   )
 
   const truckInsights = useMemo(() => {
@@ -799,10 +809,12 @@ export function DashboardPage() {
           </Button>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard label="Nombre total de trajets" value={summary.totalTrips} />
-          <KpiCard label="Nombre de trajets actifs" value={summary.activeTrips} />
-          <KpiCard label="Camions enregistrés" value={truckTotals.total} />
-          <KpiCard label="Camions actifs / inactifs" value={`${truckTotals.active} / ${truckTotals.inactive}`} />
+          <KpiCard label="Nombre total de trajets" value={dashboardStats?.total_trips ?? summary.totalTrips} />
+          <KpiCard label="Nombre de trajets actifs" value={dashboardStats?.active_trips ?? summary.activeTrips} />
+          <KpiCard label="Trajets aujourd'hui" value={dashboardStats?.trips_today ?? '-'} />
+          <KpiCard label="Utilisateurs enregistrés" value={dashboardStats?.total_users ?? '-'} />
+          <KpiCard label="Camions enregistrés" value={dashboardStats?.total_trucks ?? truckTotals.total} />
+          <KpiCard label="Camions actifs / inactifs" value={dashboardStats ? `${dashboardStats.active_trucks} / ${dashboardStats.total_trucks - dashboardStats.active_trucks}` : `${truckTotals.active} / ${truckTotals.inactive}`} />
           <KpiCard label="Durée moyenne d’un trajet" value={formatDuration(tripDurationStats.averageMinutes)} />
           <KpiCard label="Temps moyen (Entreprise → Port)" value={formatDuration(summary.avgCompanyToPort)} />
           <KpiCard label="Temps moyen au port" value={formatDuration(summary.avgPortDuration)} />

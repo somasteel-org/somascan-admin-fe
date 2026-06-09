@@ -124,16 +124,18 @@ async function computeSummaryFromTrips(): Promise<ReportSummary> {
   }
 }
 
-export async function getReportsSummary() {
+export async function getReportsSummary(params?: { start_date?: string; end_date?: string }) {
   try {
-    const { data } = await apiClient.get<unknown>('/reports/summary')
+    const { data } = await apiClient.get<unknown>('/reports/summary', { params })
     const payload = asRecord(data)
     const nested = asRecord(payload.data)
     const source = Object.keys(nested).length ? nested : payload
 
-    const summary: ReportSummary = {
+    const summary = {
       totalTrips: toNumber(source.totalTrips ?? source.total_trips),
       activeTrips: toNumber(source.activeTrips ?? source.active_trips),
+      completedTrips: toNumber(source.completedTrips ?? source.completed_trips),
+      cancelledTrips: toNumber(source.cancelledTrips ?? source.cancelled_trips),
       avgCompanyToPort: toNumber(
         source.avgCompanyToPort ?? source.avg_company_to_port ?? asRecord(source.average_durations).company_to_port,
       ),
@@ -143,6 +145,10 @@ export async function getReportsSummary() {
       avgPortToCompany: toNumber(
         source.avgPortToCompany ?? source.avg_port_to_company ?? asRecord(source.average_durations).port_to_company,
       ),
+      avgTotalDuration: toNumber(
+        source.avgTotalDuration ?? source.average_total_duration ?? asRecord(source.average_durations).total_duration,
+      ),
+      trips: Array.isArray(source.trips) ? source.trips : [],
     }
 
     if (summary.avgCompanyToPort > 0 || summary.avgPortDuration > 0 || summary.avgPortToCompany > 0) {
@@ -155,8 +161,12 @@ export async function getReportsSummary() {
       avgCompanyToPort: computed.avgCompanyToPort,
       avgPortDuration: computed.avgPortDuration,
       avgPortToCompany: computed.avgPortToCompany,
+      avgTotalDuration: summary.avgTotalDuration,
       totalTrips: summary.totalTrips || computed.totalTrips,
       activeTrips: summary.activeTrips || computed.activeTrips,
+      completedTrips: summary.completedTrips || 0,
+      cancelledTrips: summary.cancelledTrips || 0,
+      trips: summary.trips,
     }
   } catch {
     return computeSummaryFromTrips()
@@ -228,13 +238,15 @@ export async function getReportsEvolution() {
   }
 }
 
-export async function getTruckReport(truckId: number) {
-  const { data } = await apiClient.get(`/reports/truck/${truckId}`)
+export async function getTruckReport(truckId: number, params?: { start_date?: string; end_date?: string }) {
+  const { data } = await apiClient.get(`/reports/truck/${truckId}`, { params })
   return data
 }
 
-export async function exportReports() {
-  const { data } = await apiClient.get<ExportReportPayload>('/reports/export')
-  const payload = asRecord(data)
-  return payload
+export async function exportReports(params?: { start_date?: string; end_date?: string }) {
+  const { data } = await apiClient.get<Blob>('/reports/export', {
+    responseType: 'blob',
+    params,
+  })
+  return data
 }

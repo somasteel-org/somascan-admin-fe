@@ -597,6 +597,7 @@ export function TripsPage() {
                   <option value="ARRIVED_PORT">Arrivé au port</option>
                   <option value="LEFT_PORT">Sortie du port</option>
                   <option value="COMPLETED">Trajet terminé</option>
+                  <option value="CANCELLED">Annulé</option>
                 </Select>
               </div>
             </div>
@@ -809,6 +810,7 @@ export function TripsPage() {
               <option value="ARRIVED_PORT">Arrivé au port</option>
               <option value="LEFT_PORT">Sortie du port</option>
               <option value="COMPLETED">Trajet terminé</option>
+              <option value="CANCELLED">Annulé</option>
             </Select>
 
             <div>
