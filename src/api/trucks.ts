@@ -39,7 +39,6 @@ function normalizeTruck(raw: unknown): Truck {
     created_at: row.created_at ? String(row.created_at) : undefined,
     updated_at: row.updated_at ? String(row.updated_at) : undefined,
     active_trip: row.active_trip ? (row.active_trip as Trip) : null,
-    maintenance_records: Array.isArray(row.maintenance_records) ? (row.maintenance_records as any) : undefined,
   }
 }
 
